@@ -41,6 +41,7 @@ if menu == "Create Project":
         notes = st.text_area("Notes")
         key_contact = st.text_input("Key Contact Full Name")
         meeting_type = st.text_input("Meeting Type")
+        meeting_id = st.text_input("Meeting ID")
         meeting_number = st.text_input("Meeting Number")
         
         submitted = st.form_submit_button("Create Project")
@@ -58,6 +59,7 @@ if menu == "Create Project":
                     "notes": notes,
                     "key_contact": key_contact,
                     "meeting_type": meeting_type,
+                    "meeting_id": meeting_id,
                     "meeting_number": meeting_number,
                     "project_token": project_token,
                 }
@@ -81,6 +83,7 @@ if menu == "Create Project":
                                 "project_name": project_name,
                                 "company_name": company_name,
                                 "meeting_type": meeting_type,
+                                "meeting_id": meeting_id,
                                 "meeting_number": meeting_number,
                                 "project_token": project_token,
                                 "trigger_source": "streamlit_form"
@@ -339,6 +342,7 @@ elif menu == "Review Zoom Recordings (All)":
             
             with col2:
                 st.write(f"**Meeting Type:** {project.get('meeting_type', 'N/A')}")
+                st.write(f"**Meeting ID:** {project.get('meeting_id', 'N/A')}")
                 st.write(f"**HubSpot:** {project.get('hubspot_url', 'N/A')[:30]}...")
             
             # Show secure link
