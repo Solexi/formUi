@@ -15,6 +15,70 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+TEST_MEETINGS = [
+    {
+        "id": "98765432100",
+        "topic": "Client Strategy Call",
+        "start_time": "2026-02-20T14:00:00Z",
+        "duration": 45,
+        "host_email": "john@company.com",
+        "recording_files": [
+            {
+                "id": "rec_001",
+                "file_type": "MP4",
+                "file_extension": "mp4",
+                "file_size": 23456789,
+                "download_url": "http://raw.githubusercontent.com/Solexi/Solexi/main/3248217-uhd_3840_2160_25fps(1).mp4",
+                "status": "completed"
+            },
+            {
+                "id": "transcript_001",
+                "file_type": "TRANSCRIPT",
+                "file_extension": "vtt",
+                "download_url": "https://drive.google.com/uc?export=download&id=1Xs2sp0sByYGhBuR7zfF6D1oSEOAfvcOJ",
+                "status": "completed"
+            }
+        ]
+    },
+    {
+        "id": "11223344556",
+        "topic": "Product Demo - Q4 Review",
+        "start_time": "2026-02-18T10:30:00Z",
+        "duration": 60,
+        "host_email": "sarah@company.com",
+        "recording_files": [
+            {
+                "id": "rec_002",
+                "file_type": "MP4",
+                "file_extension": "mp4",
+                "file_size": 45678901,
+                "download_url": "http://raw.githubusercontent.com/Solexi/Solexi/main/3248217-uhd_3840_2160_25fps(1).mp4",
+                "status": "completed"
+            }
+        ]
+    },
+    {
+        "id": "55667788990",
+        "topic": "Team Sync - Sprint Planning",
+        "start_time": "2026-02-15T09:00:00Z",
+        "duration": 30,
+        "host_email": "mike@company.com",
+        "recording_files": []
+    }
+]
+
+def format_datetime(iso_string):
+    try:
+        dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
+        return dt.strftime("%B %d, %Y at %I:%M %p")
+    except:
+        return iso_string
+
+def fetch_meeting_details(meeting_id):
+    # Replace with actual Zoom API call when available
+    meeting = next((m for m in TEST_MEETINGS if m["id"] == meeting_id), None)
+    return meeting
+
 st.set_page_config(page_title="HA Automation Form", layout="wide")
 st.title("HA Data Integration")
 
@@ -128,7 +192,7 @@ elif menu == "Review Zoom Recordings" or project_token:
     
     if project_token:
         project_response = supabase.table("projects") \
-            .select("project_id, project_name, company_name") \
+            .select("project_id, project_name, company_name, folder_url") \
             .eq("project_token", project_token) \
             .execute()
         
@@ -140,10 +204,12 @@ elif menu == "Review Zoom Recordings" or project_token:
         selected_project_id = selected_project["project_id"]
         
         st.success(f"Reviewing recordings for: **{selected_project['company_name']} - {selected_project['project_name']}**")
+        if selected_project.get("folder_url"):
+            st.markdown(f"**Google Drive Folder:** [Open Folder]({selected_project['folder_url']})")
     
     else:
         projects_response = supabase.table("projects") \
-            .select("project_id, project_name, company_name, project_token") \
+            .select("project_id, project_name, company_name, project_token, folder_url") \
             .order("created_at", desc=True) \
             .execute()
         
@@ -163,6 +229,9 @@ elif menu == "Review Zoom Recordings" or project_token:
         
         selected_project = project_options[selected_project_label]
         selected_project_id = selected_project["project_id"]
+
+        if selected_project.get("folder_url"):
+            st.markdown(f"**Google Drive Folder:** [Open Folder]({selected_project['folder_url']})")
         
         if selected_project.get("project_token"):
             base_url = os.getenv("STREAMLIT_APP_URL", "http://localhost:8501")
@@ -198,16 +267,26 @@ elif menu == "Review Zoom Recordings" or project_token:
         
         with col1:
             st.write(f"**Meeting ID:** `{record['meeting_id']}`")
-            st.write(f"**Date:** {record['meeting_date']}")
-            
-            # if record.get('file_url'):
-            #     st.write(f"**Files:** [View in Drive]({record['file_url']})")
+            meeting_date = format_datetime(record['meeting_date']) if record.get('meeting_date') else 'N/A'
+            st.write(f"**Date:** {meeting_date}")
         
         with col2:
-            st.write(f"**Duration:** {record.get('duration', 'N/A')} min")
-            st.write(f"**Host:** {record.get('host_id', 'N/A')[:20]}...")
+            duration_value = record.get('duration')
+            if duration_value and duration_value != 'N/A':
+                st.write(f"**Duration:** {duration_value} min")
+            else:
+                st.write(f"**Duration:** N/A")
+            
+            host_id = record.get('host_id', 'N/A')
+            if len(str(host_id)) > 20:
+                st.write(f"**Host:** {str(host_id)[:20]}...")
+            else:
+                st.write(f"**Host:** {host_id}")
         
         st.markdown("---")
+        
+        if f"loaded_meeting_{record['zoom_record_id']}" not in st.session_state:
+            st.session_state[f"loaded_meeting_{record['zoom_record_id']}"] = None
         
         action_col1, action_col2, action_col3 = st.columns([1, 2, 1])
         
@@ -266,59 +345,122 @@ elif menu == "Review Zoom Recordings" or project_token:
         
         with action_col3:
             if st.button(
-                "Submit Correct Meeting ID",
-                key=f"override_btn_{record['zoom_record_id']}",
+                "Load Meeting",
+                key=f"load_meeting_{record['zoom_record_id']}",
                 use_container_width=True
             ):
                 if override_meeting_id:
-                    supabase.table("zoom_meetings") \
-                        .update({
-                            "override_meeting_id": override_meeting_id,
-                            "status": "override_requested",
-                            "processed": True,
-                            "processed_at": datetime.now().isoformat()
-                        }) \
-                        .eq("zoom_record_id", record["zoom_record_id"]) \
-                        .execute()
-                    
-                    # TRIGGER WORKFLOW 3 WITH OVERRIDE
-                    n8n_wf3_url = os.getenv("N8N_WF3_WEBHOOK_URL")
-                    
-                    if n8n_wf3_url:
-                        try:
-                            wf3_payload = {
-                                "project_id": selected_project_id,
-                                "meeting_id": override_meeting_id,  # Use override ID
-                                "zoom_record_id": record["zoom_record_id"],
-                                "status": "override_approved",
-                                "original_meeting_id": record["meeting_id"],
-                                "trigger_source": "streamlit_override"
-                            }
-                            
-                            wf3_response = requests.post(
-                                n8n_wf3_url,
-                                json=wf3_payload,
-                                timeout=10
-                            )
-                            
-                            if wf3_response.status_code == 200:
-                                st.success(f"Override submitted! Using Meeting ID: {override_meeting_id}")
-                            # else:
-                            #     st.warning(f"Override saved, but workflow trigger failed (status {wf3_response.status_code})")
-                        
-                        except Exception as e:
-                            st.error(f"Workflow trigger failed: {str(e)}")
-                    else:
-                        st.success(f"Override Meeting ID saved: {override_meeting_id}")
-                    
+                    meeting_details = fetch_meeting_details(override_meeting_id)
+                    st.session_state[f"loaded_meeting_{record['zoom_record_id']}"] = meeting_details
                     st.rerun()
                 else:
                     st.warning("Please enter a Meeting ID first")
 
+        loaded_meeting = st.session_state.get(f"loaded_meeting_{record['zoom_record_id']}")
+        if loaded_meeting:
+            with st.container():
+                st.markdown("### Meeting Details Preview")
+                
+                details_col1, details_col2 = st.columns(2)
+                
+                with details_col1:
+                    st.info(f"**Topic:** {loaded_meeting['topic']}")
+                    st.info(f"**Meeting ID:** `{loaded_meeting['id']}`")
+                    st.info(f"**Host:** {loaded_meeting['host_email']}")
+                
+                with details_col2:
+                    formatted_time = format_datetime(loaded_meeting['start_time'])
+                    st.info(f"**Scheduled:** {formatted_time}")
+                    st.info(f"**Duration:** {loaded_meeting['duration']} minutes")
 
-# ==========================================
+                    if loaded_meeting.get('recording_files'):
+                        recordings_count = len(loaded_meeting['recording_files'])
+                        st.info(f"**Recordings:** {recordings_count} file(s) available")
+
+                if loaded_meeting.get('recording_files'):
+                    with st.expander("📁 Recording Files", expanded=False):
+                        for rec_file in loaded_meeting['recording_files']:
+                            file_type = rec_file.get('file_type', 'Unknown')
+                            status = rec_file.get('status', 'Unknown')
+                            
+                            col_file1, col_file2 = st.columns([3, 1])
+                            with col_file1:
+                                st.write(f"**{file_type}** - {rec_file.get('file_extension', '').upper()}")
+                                if rec_file.get('file_size'):
+                                    size_mb = rec_file['file_size'] / (1024 * 1024)
+                                    st.caption(f"Size: {size_mb:.2f} MB")
+                            with col_file2:
+                                st.caption(f"Status: {status}")
+                else:
+                    st.warning("⚠️ No recording files available for this meeting")
+                
+                confirm_col1, confirm_col2 = st.columns([1, 1])
+                
+                with confirm_col1:
+                    if st.button(
+                        "✓ Use This Meeting ID",
+                        key=f"confirm_override_{record['zoom_record_id']}",
+                        type="primary",
+                        use_container_width=True
+                    ):
+                        supabase.table("zoom_meetings") \
+                            .update({
+                                "override_meeting_id": override_meeting_id,
+                                "status": "override_requested",
+                                "processed": True,
+                                "processed_at": datetime.now().isoformat()
+                            }) \
+                            .eq("zoom_record_id", record["zoom_record_id"]) \
+                            .execute()
+                        
+                        n8n_wf3_url = os.getenv("N8N_WF3_WEBHOOK_URL")
+                        
+                        if n8n_wf3_url:
+                            try:
+                                wf3_payload = {
+                                    "project_id": selected_project_id,
+                                    "meeting_id": override_meeting_id,
+                                    "zoom_record_id": record["zoom_record_id"],
+                                    "status": "override_approved",
+                                    "original_meeting_id": record["meeting_id"],
+                                    "trigger_source": "streamlit_override"
+                                }
+                                
+                                wf3_response = requests.post(
+                                    n8n_wf3_url,
+                                    json=wf3_payload,
+                                    timeout=10
+                                )
+                                
+                                if wf3_response.status_code == 200:
+                                    st.success(f"Override submitted! Using Meeting ID: {override_meeting_id}")
+                            
+                            except Exception as e:
+                                st.error(f"Workflow trigger failed: {str(e)}")
+                        else:
+                            st.success(f"Override Meeting ID saved: {override_meeting_id}")
+
+                        st.session_state[f"loaded_meeting_{record['zoom_record_id']}"] = None
+                        st.rerun()
+                
+                with confirm_col2:
+                    if st.button(
+                        "✗ Try Different Meeting ID",
+                        key=f"cancel_override_{record['zoom_record_id']}",
+                        use_container_width=True
+                    ):
+                        st.session_state[f"loaded_meeting_{record['zoom_record_id']}"] = None
+                        st.rerun()
+        
+        elif override_meeting_id:
+            if st.button(
+                "Submit Correct Meeting ID",
+                key=f"override_btn_{record['zoom_record_id']}",
+                use_container_width=False
+            ):
+                st.warning("⚠️ Please click 'Load Meeting' first to verify the meeting details before submitting.")
+
 # ADMIN VIEW: ALL PROJECTS
-# ==========================================
 elif menu == "Review Zoom Recordings (All)":
     st.header("All Projects Overview")
     
@@ -338,12 +480,28 @@ elif menu == "Review Zoom Recordings (All)":
             with col1:
                 st.write(f"**Project ID:** {project['project_id']}")
                 st.write(f"**Contact:** {project.get('key_contact', 'N/A')}")
-                st.write(f"**Created:** {project.get('created_at', 'N/A')[:10]}")
+
+                created_at = project.get('created_at', 'N/A')
+                if created_at != 'N/A':
+                    created_date = format_datetime(created_at)
+                    st.write(f"**Created:** {created_date}")
+                else:
+                    st.write(f"**Created:** N/A")
             
             with col2:
                 st.write(f"**Meeting Type:** {project.get('meeting_type', 'N/A')}")
                 st.write(f"**Meeting ID:** {project.get('meeting_id', 'N/A')}")
-                st.write(f"**HubSpot:** {project.get('hubspot_url', 'N/A')[:30]}...")
+                hubspot = project.get('hubspot_url', 'N/A')
+                if len(str(hubspot)) > 30:
+                    st.write(f"**HubSpot:** {str(hubspot)[:30]}...")
+                else:
+                    st.write(f"**HubSpot:** {hubspot}")
+
+                folder_url = project.get('folder_url')
+                if folder_url:
+                    st.markdown(f"**Google Drive Folder:** [Open Folder]({folder_url})")
+                else:
+                    st.write("**Google Drive Folder:** N/A")
             
             # Show secure link
             if project.get("project_token"):
