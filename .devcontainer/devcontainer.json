@@ -1,32 +1,34 @@
 {
-  "name": "Python 3",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "name": "React + Tailwind",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
   "customizations": {
     "codespaces": {
       "openFiles": [
-        "README.md",
-        "app.py"
+        "src/App.jsx",
+        "src/components/RecordingsReview.jsx"
       ]
     },
     "vscode": {
-      "settings": {},
+      "settings": {
+        "css.lint.unknownAtRules": "ignore"
+      },
       "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance"
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "npm install",
   "postAttachCommand": {
-    "server": "streamlit run app.py --server.enableCORS false --server.enableXsrfProtection false"
+    "server": "npm run dev -- --host 0.0.0.0 --port 5173"
   },
   "portsAttributes": {
-    "8501": {
-      "label": "Application",
+    "5173": {
+      "label": "Vite App",
       "onAutoForward": "openPreview"
     }
   },
   "forwardPorts": [
-    8501
+    5173
   ]
 }
